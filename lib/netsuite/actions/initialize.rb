@@ -52,6 +52,14 @@ module NetSuite
         @response_body ||= response_hash[:record]
       end
 
+      def errors
+        error_obj = response_hash[:status][:status_detail]
+        error_obj = [error_obj] if error_obj.class == Hash
+        error_obj.map do |error|
+          NetSuite::Error.new(error)
+        end
+      end
+
       module Support
 
         def self.included(base)
@@ -70,7 +78,8 @@ module NetSuite
             if response.success?
               new(response.body)
             else
-              raise InitializationError, "#{self}.initialize with #{object} failed."
+              @errors = response.errors
+              response
             end
           end
 
