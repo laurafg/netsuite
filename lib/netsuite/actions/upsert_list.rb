@@ -63,10 +63,10 @@ module NetSuite
           error_obj = obj[:status][:status_detail]
           error_obj = [error_obj] if error_obj.class == Hash
           errors = error_obj.map do |error|
-            NetSuite::Error.new(error)
-          end
+            NetSuite::Error.new(error) if error[:@type]=="ERROR"
+          end.compact
 
-          [obj[:base_ref][:@external_id], errors]
+          [obj[:base_ref][:@external_id], errors] unless errors.empty?
         end
         Hash[errors]
       end
@@ -83,29 +83,20 @@ module NetSuite
 
         module ClassMethods
           def upsert_list(records, credentials = {})
-            netsuite_records = records.map do |r|
-              if r.kind_of?(self)
-                r
-              else
-                self.new(r)
-              end
-            end
+            @netsuite_records = records.map { |r| r.kind_of?(self) ? r : self.new(r) }
+            response = NetSuite::Actions::UpsertList.call(@netsuite_records, credentials)
 
-            response = NetSuite::Actions::UpsertList.call(netsuite_records, credentials)
+            success_records = []
 
-            if response.success?
-              response.body.map do |attr|
-                record = netsuite_records.find do |r|
-                  r.external_id == attr[:@external_id]
-                end
-
+            response.body.each do |attr|
+              if (attr[:@internal_id] && (response.errors.empty? || !response.errors.keys.include?(attr[:@external_id])))
+                record = @netsuite_records.find{|r| r.external_id == attr[:@external_id].to_i}
                 record.instance_variable_set('@internal_id', attr[:@internal_id])
+                success_records << record
               end
-
-              netsuite_records
-            else
-              false
             end
+
+            [success_records, response.errors]
           end
         end
       end
